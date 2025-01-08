@@ -19,6 +19,7 @@
 
 typedef struct {
     bool case_sensitive;
+    bool inverse_match;
 } GrepOptions;
 
 typedef struct {
@@ -120,6 +121,38 @@ static int search_string(
 }
 
 
+static void print_line(
+    const char *line,
+    const char *query,
+    size_t *matches,
+    int matchcount
+) {
+
+    int match_index = 0;
+    for (size_t i=0; i < strlen(line); ++i) {
+
+        /* if current index is within matchlist and matchlist is not empty, */
+        /* print the query, and move to the end of the word                 */
+        if (i == matches[match_index] && matchcount) {
+            printf(
+                "%s%s%.*s%s",
+                COLOR_RED,
+                COLOR_BOLD,
+                (int) strlen(query),
+                line + i,
+                COLOR_END
+            );
+            match_index++;
+            i += strlen(query) - 1;
+
+        } else {
+            printf("%c", line[i]);
+        }
+
+    }
+    printf("\n");
+
+}
 
 
 static void do_grep(Grep *grep) {
@@ -129,6 +162,7 @@ static void do_grep(Grep *grep) {
 
         size_t matches[strlen(line)];
         memset(matches, 0, strlen(line));
+
         int matchcount = search_string(
             line,
             grep->query,
@@ -136,28 +170,10 @@ static void do_grep(Grep *grep) {
             grep->opts.case_sensitive
         );
 
-        if (!matchcount)
+        if (!matchcount != grep->opts.inverse_match)
             continue;
 
-
-        int m = 0;
-        for (size_t i=0; i < strlen(line); ++i) {
-            if (i == matches[m]) {
-                printf(
-                    "%s%s%.*s%s",
-                    COLOR_RED,
-                    COLOR_BOLD,
-                    (int) strlen(grep->query),
-                    &line[i],
-                    COLOR_END
-                );
-                m++;
-                i += strlen(grep->query) - 1;
-            } else {
-                printf("%c", line[i]);
-            }
-        }
-        printf("\n");
+        print_line(line, grep->query, matches, matchcount);
 
     }
 
@@ -202,13 +218,17 @@ int main(int argc, char **argv) {
 
     GrepOptions opts = {
         .case_sensitive = true,
+        .inverse_match  = false,
     };
 
     int opt = 0;
-    while ((opt = getopt(argc, argv, "i")) != -1) {
+    while ((opt = getopt(argc, argv, "iv")) != -1) {
         switch (opt) {
             case 'i': {
                 opts.case_sensitive = false;
+            } break;
+            case 'v': {
+                opts.inverse_match = true;
             } break;
             default: {} break;
         }
