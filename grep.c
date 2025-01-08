@@ -20,6 +20,7 @@
 typedef struct {
     bool case_sensitive;
     bool inverse_match;
+    bool print_count;
 } GrepOptions;
 
 typedef struct {
@@ -157,12 +158,15 @@ static void print_line(
 
 static void do_grep(Grep *grep) {
 
+    /* "global" in the sense that it only counts each query occurance */
+    /* in a line once */
+    int global_matchcount = 0;
+
     for (size_t i=0; i < grep->lines_count; ++i) {
         const char *line = grep->lines[i];
 
         size_t matches[strlen(line)];
         memset(matches, 0, strlen(line));
-
         int matchcount = search_string(
             line,
             grep->query,
@@ -173,9 +177,17 @@ static void do_grep(Grep *grep) {
         if (!matchcount != grep->opts.inverse_match)
             continue;
 
+        if (grep->opts.print_count) {
+            global_matchcount++;
+            continue;
+        }
+
         print_line(line, grep->query, matches, matchcount);
 
     }
+
+    if (grep->opts.print_count)
+        printf("%d\n", global_matchcount);
 
 }
 
@@ -219,16 +231,20 @@ int main(int argc, char **argv) {
     GrepOptions opts = {
         .case_sensitive = true,
         .inverse_match  = false,
+        .print_count    = false,
     };
 
     int opt = 0;
-    while ((opt = getopt(argc, argv, "iv")) != -1) {
+    while ((opt = getopt(argc, argv, "ivc")) != -1) {
         switch (opt) {
             case 'i': {
                 opts.case_sensitive = false;
             } break;
             case 'v': {
                 opts.inverse_match = true;
+            } break;
+            case 'c': {
+                opts.print_count = true;
             } break;
             default: {} break;
         }
