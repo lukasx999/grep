@@ -4,16 +4,31 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <stdarg.h>
 #include <string.h>
+#include <errno.h>
 #include <strings.h>
 #include <unistd.h>
 #include <getopt.h>
 
+#include "./linebuffer.h"
 
 
 #define COLOR_RED  "\33[31m"
 #define COLOR_BOLD "\33[1m"
 #define COLOR_END  "\33[0m"
+
+
+
+static void error_and_exit(const char *fmt, ...) {
+    va_list va;
+    va_start(va, fmt);
+    fprintf(stderr, "Error: ");
+    vfprintf(stderr, fmt, va);
+    fprintf(stderr, "\n");
+    va_end(va);
+    exit(EXIT_FAILURE);
+}
 
 
 
@@ -26,75 +41,10 @@ typedef struct {
 typedef struct {
     const char *filename;
     const char *query; // TODO: regex query
-    char **lines;
-    size_t lines_count;
-    size_t line_bufsize; /* size of the longest line in the file */
+    LineBuffer file;
     GrepOptions opts;
 } Grep;
 
-
-
-/* get linecount, and max line-length of the file, so we can allocate the correct size */
-static void parse_file(Grep *grep, FILE *file) {
-    size_t bufsize     = 0;
-    size_t bufsize_ref = 0;
-    size_t nlcount     = 0;
-
-    char c;
-    while ((c = fgetc(file)) != EOF) {
-        ++bufsize;
-        if (c == '\n') {
-            ++nlcount;
-            if (bufsize > bufsize_ref)
-                bufsize_ref = bufsize;
-            bufsize = 0;
-        }
-    }
-
-    /* `-1` to reserve space for a newline on the longest line in the file */
-    /* otherwise, fgets() would read another line, which we dont want */
-    grep->line_bufsize = bufsize_ref + 1;
-    grep->lines_count  = nlcount;
-}
-
-
-static void read_file(Grep *grep) {
-    FILE *file = fopen(grep->filename, "r");
-
-    parse_file(grep, file);
-    rewind(file);
-
-    grep->lines = malloc(grep->lines_count * sizeof(char*));
-    for (size_t i=0; i < grep->lines_count; ++i)
-        grep->lines[i] = calloc(grep->line_bufsize, sizeof(char));
-
-    size_t i = 0;
-    while (fgets(grep->lines[i], grep->line_bufsize, file) != NULL) {
-        /* remove newline */
-        char *l = grep->lines[i];
-        l[strcspn(l, "\n")] = '\0';
-        ++i;
-    }
-    assert(i == grep->lines_count);
-
-    fclose(file);
-}
-
-
-
-static void read_stdin(Grep *grep) {
-    // TODO: dynarray
-    (void) grep;
-    assert(false);
-}
-
-
-static void free_lines(Grep *grep) {
-    for (size_t i=0; i < grep->lines_count; ++i)
-        free(grep->lines[i]);
-    free(grep->lines);
-    grep->lines = NULL;
-}
 
 
 
@@ -162,8 +112,8 @@ static void do_grep(Grep *grep) {
     /* in a line once */
     int global_matchcount = 0;
 
-    for (size_t i=0; i < grep->lines_count; ++i) {
-        const char *line = grep->lines[i];
+    for (size_t i=0; i < grep->file.linecount; ++i) {
+        const char *line = grep->file.lines[i];
 
         size_t matches[strlen(line)];
         memset(matches, 0, strlen(line));
@@ -194,38 +144,50 @@ static void do_grep(Grep *grep) {
 
 static void grep(GrepOptions opts, const char *filename, const char *query) {
     Grep grep = {
-        .filename           = filename,
-        .query              = query,
-        .lines              = NULL,
-        .line_bufsize       = 0,
-        .lines_count        = 0,
-        .opts               = opts,
+        .filename = filename,
+        .query    = query,
+        .file     = { 0 },
+        .opts     = opts,
     };
 
-    if (filename == NULL)
-        read_stdin(&grep);
-    else
-        read_file(&grep);
+    if (filename == NULL) {
+        linebuffer_read_stdin(&grep.file);
+    }
+    else {
+        int err = linebuffer_read_file(&grep.file, grep.filename);
+        if (err != 0)
+            error_and_exit("Failed to read file");
+    }
 
     do_grep(&grep);
-    free_lines(&grep);
+    linebuffer_destroy(&grep.file);
 }
 
+
+static void print_usage(char **argv) {
+    fprintf(stderr, "Usage: %s <file> <query>\n", argv[0]);
+}
 
 
 int main(int argc, char **argv) {
 
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <file> <query>\n", argv[0]);
+    if (argc < 2) {
+        print_usage(argv);
         return EXIT_FAILURE;
     }
 
     const char *query    = argv[1];
-    const char *filename = argv[2];
+    const char *filename = NULL;
 
-    // TODO: make filename optional if !isatty(0)
-    if (!strcmp(filename, "-"))
-        filename = NULL;
+    /* read from stdin */
+    if (argc == 2) {
+        if (isatty(STDIN_FILENO)) {
+            print_usage(argv);
+            return EXIT_FAILURE;
+        }
+    } else {
+        filename = !strcmp(argv[2], "-") ? NULL : argv[2];
+    }
 
 
     GrepOptions opts = {

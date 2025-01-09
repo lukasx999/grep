@@ -7,9 +7,9 @@ commands 1
     continue
 end
 
-break free_file
+break free_lines
 commands 2
-    print *grep->lines@grep->lines_count
+    print *grep->query
 end
 
-run file.txt in
+run file.txt better

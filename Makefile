@@ -1,20 +1,17 @@
 CFLAGS=-Wall -Wextra -std=c99 -pedantic -ggdb
+DEPS=linebuffer.h
 
 all: grep
 
-grep: grep.o
+grep: grep.o linebuffer.o $(DEPS)
 	cc $^ $(CFLAGS) -o grep
 
-%.o: %.c Makefile
+%.o: %.c Makefile $(DEPS)
 	cc $(CFLAGS) -c $< -o $@
 
 run:
 	$(MAKE) grep
 	./grep file.txt better
-
-mem:
-	$(MAKE) grep
-	valgrind ./grep file.txt better
 
 debug:
 	@#gdb --batch -x debug.gdb ./grep -nx
