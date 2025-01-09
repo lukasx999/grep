@@ -88,11 +88,11 @@ static void print_line(
 
         /* if current index is within matchlist and matchlist is not empty, */
         /* print the query, and move to the end of the word                 */
-        if (i == matches[match_index] && matchcount) {
+        bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
+        if (i == matches[match_index] && matchcount && !dont_print) {
             printf(
                 "%s%s%.*s%s",
-                COLOR_RED,
-                COLOR_BOLD,
+                COLOR_RED, COLOR_BOLD,
                 (int) strlen(query),
                 line + i,
                 COLOR_END
@@ -112,8 +112,7 @@ static void print_line(
 
 static void do_grep(Grep *grep) {
 
-    /* "global" in the sense that it only counts each query occurance */
-    /* in a line once */
+    /* "global" in the sense that it only counts each query occurance once in a line */
     int global_matchcount = 0;
 
     for (size_t i=0; i < grep->file.linecount; ++i) {
