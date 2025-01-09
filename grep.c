@@ -59,6 +59,10 @@ static int search_string(
 ) {
     int matchcount = 0;
 
+    /* edge-case: empty query will loop forever */
+    if (!strcmp(query, ""))
+        return 0;
+
     const char *s = str;
     while ((s = case_sensitive
         ? strstr(s, query)
