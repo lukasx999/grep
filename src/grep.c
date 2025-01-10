@@ -76,6 +76,9 @@ static int search_string(
 }
 
 
+
+
+
 static void print_line(
     const char *line,
     const char *query,
@@ -108,6 +111,8 @@ static void print_line(
     printf("\n");
 
 }
+
+
 
 
 static void do_grep(Grep *grep) {
