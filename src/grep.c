@@ -10,6 +10,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <regex.h>
 
 #include "./linebuffer.h"
 
@@ -36,17 +37,95 @@ typedef struct {
     bool case_sensitive;
     bool inverse_match;
     bool print_count;
+    bool use_regex;
+    bool extended_regex;
 } GrepOptions;
 
 typedef struct {
-    const char *filename;
-    const char *query; // TODO: regex query
+    const char *filename; // NULL if stdin
+    const char *query; // raw query
     LineBuffer file;
     GrepOptions opts;
+    regex_t re; // only when using regex
 } Grep;
 
 
 
+
+
+
+
+
+// static void print_line(
+//     const char *line,
+//     const char *query,
+//     size_t *matches,
+//     int matchcount
+// ) {
+//
+//     int match_index = 0;
+//     for (size_t i=0; i < strlen(line); ++i) {
+//
+//         /* if current index is within matchlist and matchlist is not empty, */
+//         /* print the query, and move to the end of the word                 */
+//         bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
+//         if (i == matches[match_index] && matchcount && !dont_print) {
+//             printf(
+//                 "%s%s%.*s%s",
+//                 COLOR_RED, COLOR_BOLD,
+//                 (int) strlen(query),
+//                 line + i,
+//                 COLOR_END
+//             );
+//             match_index++;
+//             i += strlen(query) - 1;
+//
+//         } else {
+//             printf("%c", line[i]);
+//         }
+//
+//     }
+//     printf("\n");
+//
+// }
+
+
+
+static void print_line(
+    const char *line,
+    const char *query,
+    size_t *matches,
+    int matchcount
+) {
+
+    int match_index = 0;
+    for (size_t i=0; i < strlen(line); ++i) {
+
+        /* if current index is within matchlist and matchlist is not empty, */
+        /* print the query, and move to the end of the word                 */
+        bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
+
+        if (i == matches[match_index] && matchcount && !dont_print) {
+
+            size_t end = matches[i+1];
+            printf(
+                "%s%s%.*s%s",
+                COLOR_RED, COLOR_BOLD,
+                (int) end,
+                line + i,
+                COLOR_END
+            );
+            match_index += 2;
+            i += end - 1;
+
+        } else {
+            printf("%c", line[i]);
+        }
+
+    }
+    printf("\n");
+
+}
 
 
 /* fills the array matches with indices of the occurances of `query` within `str` */
@@ -57,7 +136,7 @@ static int search_string(
     size_t *matches,
     bool case_sensitive
 ) {
-    int matchcount = 0;
+    size_t matchcount = 0;
 
     /* edge-case: empty query will loop forever */
     if (!strcmp(query, ""))
@@ -76,43 +155,23 @@ static int search_string(
 }
 
 
-
-
-
-static void print_line(
-    const char *line,
-    const char *query,
-    size_t *matches,
-    int matchcount
+static int search_string_regex(
+    const char *str,
+    regex_t *re,
+    size_t *matches
 ) {
 
-    int match_index = 0;
-    for (size_t i=0; i < strlen(line); ++i) {
+    size_t matchcount = 0;
 
-        /* if current index is within matchlist and matchlist is not empty, */
-        /* print the query, and move to the end of the word                 */
-        bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
-        if (i == matches[match_index] && matchcount && !dont_print) {
-            printf(
-                "%s%s%.*s%s",
-                COLOR_RED, COLOR_BOLD,
-                (int) strlen(query),
-                line + i,
-                COLOR_END
-            );
-            match_index++;
-            i += strlen(query) - 1;
-
-        } else {
-            printf("%c", line[i]);
-        }
-
+    regmatch_t pmatch = { 0 };
+    while (regexec(re, str, 1, &pmatch, 0) != REG_NOMATCH) {
+        matches[matchcount++] = pmatch.rm_so;
+        matches[matchcount++] = pmatch.rm_eo;
+        str += pmatch.rm_eo;
     }
-    printf("\n");
 
+    return matchcount;
 }
-
-
 
 
 static void do_grep(Grep *grep) {
@@ -123,14 +182,18 @@ static void do_grep(Grep *grep) {
     for (size_t i=0; i < grep->file.linecount; ++i) {
         const char *line = grep->file.lines[i];
 
-        size_t matches[strlen(line)];
+        size_t matches[strlen(line)]; /* contains start and end index of the matches */
         memset(matches, 0, strlen(line));
-        int matchcount = search_string(
-            line,
-            grep->query,
-            matches,
-            grep->opts.case_sensitive
-        );
+        int matchcount = 0;
+
+        if (grep->opts.use_regex)
+            matchcount = search_string_regex(line, &grep->re, matches);
+        else
+            matchcount = search_string(
+                line, grep->query,
+                matches,
+                grep->opts.case_sensitive
+            );
 
         if (!matchcount != grep->opts.inverse_match)
             continue;
@@ -156,7 +219,22 @@ static void grep(GrepOptions opts, const char *filename, const char *query) {
         .query    = query,
         .file     = { 0 },
         .opts     = opts,
+        .re       = { 0 },
     };
+
+
+    if (grep.opts.use_regex) {
+        int flags = REG_NEWLINE;
+
+        if (grep.opts.extended_regex)
+            flags |= REG_EXTENDED;
+
+        if (!grep.opts.case_sensitive)
+            flags |= REG_ICASE;
+
+        regcomp(&grep.re, grep.query, flags);
+    }
+
 
     if (filename == NULL) {
         linebuffer_read_stdin(&grep.file);
@@ -167,8 +245,18 @@ static void grep(GrepOptions opts, const char *filename, const char *query) {
             error_and_exit("Failed to read file");
     }
 
+
+
+
     do_grep(&grep);
+
+
+
+    if (grep.opts.use_regex)
+        regfree(&grep.re);
+
     linebuffer_destroy(&grep.file);
+
 }
 
 
@@ -202,20 +290,28 @@ int main(int argc, char **argv) {
         .case_sensitive = true,
         .inverse_match  = false,
         .print_count    = false,
+        .use_regex      = true,
+        .extended_regex = false,
     };
 
     int opt = 0;
-    while ((opt = getopt(argc, argv, "ivc")) != -1) {
+    while ((opt = getopt(argc, argv, "ivcEF")) != -1) {
         switch (opt) {
-            case 'i': {
+            case 'i':
                 opts.case_sensitive = false;
-            } break;
-            case 'v': {
+                break;
+            case 'F':
+                opts.use_regex = false;
+                break;
+            case 'E':
+                opts.extended_regex = true;
+                break;
+            case 'v':
                 opts.inverse_match = true;
-            } break;
-            case 'c': {
+                break;
+            case 'c':
                 opts.print_count = true;
-            } break;
+                break;
             default: {} break;
         }
     }
