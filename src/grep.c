@@ -49,53 +49,20 @@ typedef struct {
     regex_t re; // only when using regex
 } Grep;
 
+typedef struct {
+    size_t start; // index of the beginning of the matched substring
+    size_t len; // length of the matches substring
+} Match;
 
 
 
-
-
-
-
-// static void print_line(
-//     const char *line,
-//     const char *query,
-//     size_t *matches,
-//     int matchcount
-// ) {
-//
-//     int match_index = 0;
-//     for (size_t i=0; i < strlen(line); ++i) {
-//
-//         /* if current index is within matchlist and matchlist is not empty, */
-//         /* print the query, and move to the end of the word                 */
-//         bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
-//         if (i == matches[match_index] && matchcount && !dont_print) {
-//             printf(
-//                 "%s%s%.*s%s",
-//                 COLOR_RED, COLOR_BOLD,
-//                 (int) strlen(query),
-//                 line + i,
-//                 COLOR_END
-//             );
-//             match_index++;
-//             i += strlen(query) - 1;
-//
-//         } else {
-//             printf("%c", line[i]);
-//         }
-//
-//     }
-//     printf("\n");
-//
-// }
 
 
 
 static void print_line(
     const char *line,
-    const char *query,
-    size_t *matches,
-    int matchcount
+    Match *matches,
+    size_t matchcount
 ) {
 
     int match_index = 0;
@@ -103,20 +70,22 @@ static void print_line(
 
         /* if current index is within matchlist and matchlist is not empty, */
         /* print the query, and move to the end of the word                 */
-        bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
+        // bool dont_print = line[i] == ' '; // HACK: inconsistent highlighting
+        // if (i == matches[match_index] && matchcount && !dont_print) {
 
-        if (i == matches[match_index] && matchcount && !dont_print) {
+        const Match *m = &matches[match_index];
 
-            size_t end = matches[i+1];
+        if (i == m->start && matchcount) {
             printf(
                 "%s%s%.*s%s",
                 COLOR_RED, COLOR_BOLD,
-                (int) end,
+                (int) m->len,
                 line + i,
                 COLOR_END
             );
-            match_index += 2;
-            i += end - 1;
+
+            match_index += 1;
+            i += m->len - 1;
 
         } else {
             printf("%c", line[i]);
@@ -126,6 +95,9 @@ static void print_line(
     printf("\n");
 
 }
+
+
+
 
 
 /* fills the array matches with indices of the occurances of `query` within `str` */
@@ -155,18 +127,23 @@ static int search_string(
 }
 
 
-static int search_string_regex(
+static size_t search_string_regex(
     const char *str,
     regex_t *re,
-    size_t *matches
+    Match *matches
 ) {
-
     size_t matchcount = 0;
-
     regmatch_t pmatch = { 0 };
+
     while (regexec(re, str, 1, &pmatch, 0) != REG_NOMATCH) {
-        matches[matchcount++] = pmatch.rm_so;
-        matches[matchcount++] = pmatch.rm_eo;
+        matches[matchcount].start = pmatch.rm_so;
+        matches[matchcount].len   = pmatch.rm_eo - pmatch.rm_so;
+
+        printf("end: %d\n", pmatch.rm_eo);
+
+        assert(matchcount > strlen(str));
+
+        matchcount++;
         str += pmatch.rm_eo;
     }
 
@@ -182,18 +159,22 @@ static void do_grep(Grep *grep) {
     for (size_t i=0; i < grep->file.linecount; ++i) {
         const char *line = grep->file.lines[i];
 
-        size_t matches[strlen(line)]; /* contains start and end index of the matches */
-        memset(matches, 0, strlen(line));
-        int matchcount = 0;
+        // Match *matches = alloca(strlen(line) * sizeof(Match));
+        Match matches[strlen(line)];
+        // memset(matches, 0, strlen(line) * sizeof(Match));
+        size_t matchcount = 0;
 
         if (grep->opts.use_regex)
             matchcount = search_string_regex(line, &grep->re, matches);
         else
-            matchcount = search_string(
-                line, grep->query,
-                matches,
-                grep->opts.case_sensitive
-            );
+            assert(!"not implemented");
+
+        // else
+            // matchcount = search_string(
+            //     line, grep->query,
+            //     matches,
+            //     grep->opts.case_sensitive
+            // );
 
         if (!matchcount != grep->opts.inverse_match)
             continue;
@@ -203,7 +184,7 @@ static void do_grep(Grep *grep) {
             continue;
         }
 
-        print_line(line, grep->query, matches, matchcount);
+        print_line(line, matches, matchcount);
 
     }
 

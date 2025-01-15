@@ -44,6 +44,7 @@ int linebuffer_read_file(LineBuffer *lb, const char *filename) {
     for (size_t i=0; i < lb->linecount; ++i)
         lb->lines[i] = calloc(lb->bufsize, sizeof(char));
 
+    // TODO: fread
     size_t i = 0;
     while (fgets(lb->lines[i], lb->bufsize, file) != NULL) {
         /* remove newline */
